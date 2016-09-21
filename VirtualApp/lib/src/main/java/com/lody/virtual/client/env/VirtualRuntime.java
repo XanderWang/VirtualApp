@@ -1,16 +1,17 @@
 package com.lody.virtual.client.env;
 
 import android.content.pm.ApplicationInfo;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
 import android.os.RemoteException;
 
 import com.lody.virtual.client.core.VirtualCore;
-import com.lody.virtual.helper.compat.VMRuntimeCompat;
-import com.lody.virtual.helper.utils.Reflect;
-import com.lody.virtual.helper.utils.ReflectException;
 import com.lody.virtual.helper.utils.VLog;
+
+import mirror.android.ddm.DdmHandleAppName;
+import mirror.android.ddm.DdmHandleAppNameJBMR1;
 
 /**
  * @author Lody
@@ -25,6 +26,10 @@ public class VirtualRuntime {
 	private static String sInitialPackageName;
 	private static String sProcessName;
 
+	public static Handler getUIHandler() {
+		return sUIHandler;
+	}
+
 	public static String getProcessName() {
 		return sProcessName;
 	}
@@ -34,29 +39,35 @@ public class VirtualRuntime {
 	}
 
 	public static void setupRuntime(String processName, ApplicationInfo appInfo) {
-		if (sInitialPackageName == null) {
-			sInitialPackageName = appInfo.packageName;
+		if (sProcessName != null) {
+			return;
 		}
+		sInitialPackageName = appInfo.packageName;
 		sProcessName = processName;
-		Process.setArgV0(processName);
-		try {
-			Reflect.on("android.ddm.DdmHandleAppName").set("mAppName", processName);
-		} catch (ReflectException e) {
-			e.printStackTrace();
+		mirror.android.os.Process.setArgV0.call(processName);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+			DdmHandleAppNameJBMR1.setAppName.call(processName, 0);
+		} else {
+			DdmHandleAppName.setAppName.call(processName);
 		}
-		VMRuntimeCompat.registerAppInfo(appInfo.packageName, appInfo.dataDir, processName);
 	}
 
 	public static <T> T crash(RemoteException e) throws RuntimeException {
 		e.printStackTrace();
-		exit();
+		CrashReporter.report(getProcessName(), e);
+		if (VirtualCore.get().isVAppProcess()) {
+			exit();
+		}
 		throw new RuntimeException(e);
 	}
 
 	public static void exit() {
 		VLog.d(VirtualRuntime.class.getSimpleName(), "Exit process : %s (%s).", getProcessName(),
-				VirtualCore.getCore().getProcessName());
+				VirtualCore.get().getProcessName());
 		Process.killProcess(Process.myPid());
-		System.exit(0);
+	}
+
+	public static boolean isArt() {
+		return System.getProperty("java.vm.version").startsWith("2");
 	}
 }

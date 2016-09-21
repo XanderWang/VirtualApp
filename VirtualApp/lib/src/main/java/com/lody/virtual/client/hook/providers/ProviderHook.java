@@ -1,19 +1,24 @@
 package com.lody.virtual.client.hook.providers;
 
-import android.content.IContentProvider;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.IInterface;
+
+import com.lody.virtual.helper.utils.VLog;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+
+import mirror.android.content.IContentProvider;
 
 /**
  * @author Lody
  *
- * @see android.content.IContentProvider
  *
  */
 
@@ -24,13 +29,13 @@ public class ProviderHook implements InvocationHandler {
 	static {
 		PROVIDER_MAP.put("settings", new HookFetcher() {
 			@Override
-			public ProviderHook fetch(IContentProvider provider) {
+			public ProviderHook fetch(boolean external, IInterface provider) {
 				return new SettingsProviderHook(provider);
 			}
 		});
 		PROVIDER_MAP.put("downloads", new HookFetcher() {
 			@Override
-			public ProviderHook fetch(IContentProvider provider) {
+			public ProviderHook fetch(boolean external, IInterface provider) {
 				return new DownloadProviderHook(provider);
 			}
 		});
@@ -42,20 +47,25 @@ public class ProviderHook implements InvocationHandler {
 		this.mBase = base;
 	}
 
-	public static HookFetcher fetchHook(String authority) {
+	private static HookFetcher fetchHook(String authority) {
 		HookFetcher fetcher = PROVIDER_MAP.get(authority);
 		if (fetcher == null) {
 			fetcher = new HookFetcher() {
 				@Override
-				public ProviderHook fetch(IContentProvider provider) {
-					return new ExternalProviderHook(provider);
+				public ProviderHook fetch(boolean external, IInterface provider) {
+					if (external) {
+						return new ExternalProviderHook(provider);
+					}
+					return new InternalProviderHook(provider);
 				}
 			};
 		}
 		return fetcher;
 	}
 
+
 	public Bundle call(Method method, Object[] args) throws InvocationTargetException, IllegalAccessException {
+
 		return (Bundle) method.invoke(mBase, args);
 	}
 
@@ -79,6 +89,7 @@ public class ProviderHook implements InvocationHandler {
 			}
 			return method.invoke(mBase, args);
 		} catch (Throwable e) {
+			VLog.d("ProviderHook", "call: %s (%s) with error", method.getName(), Arrays.toString(args));
 			if (e instanceof InvocationTargetException) {
 				throw e.getCause();
 			}
@@ -90,7 +101,28 @@ public class ProviderHook implements InvocationHandler {
 
 	}
 
+	private static IInterface createProxy(IInterface provider, ProviderHook hook) {
+		if (provider == null || hook == null) {
+			return null;
+		}
+		return (IInterface) Proxy.newProxyInstance(provider.getClass().getClassLoader(), new Class[] {
+				IContentProvider.TYPE,
+		}, hook);
+	}
+
+	public static IInterface createProxy(boolean external, String authority, IInterface provider) {
+		if (provider instanceof Proxy && Proxy.getInvocationHandler(provider) instanceof ProviderHook) {
+			return provider;
+		}
+		ProviderHook.HookFetcher fetcher = ProviderHook.fetchHook(authority);
+		if (fetcher != null) {
+			ProviderHook hook = fetcher.fetch(external, provider);
+			provider = ProviderHook.createProxy(provider, hook);
+		}
+		return provider;
+	}
+
 	public interface HookFetcher {
-		ProviderHook fetch(IContentProvider provider);
+		ProviderHook fetch(boolean external, IInterface provider);
 	}
 }

@@ -1,22 +1,23 @@
 package io.virtualapp.home.models;
 
+import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.os.Environment;
+
+import com.lody.virtual.client.core.InstallStrategy;
+import com.lody.virtual.client.core.VirtualCore;
+import com.lody.virtual.helper.proto.AppSetting;
+import com.lody.virtual.os.VUserHandle;
+
+import org.jdeferred.Promise;
+
 import java.io.File;
 import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-
-import org.jdeferred.Promise;
-
-import com.lody.virtual.client.core.InstallStrategy;
-import com.lody.virtual.client.core.VirtualCore;
-import com.lody.virtual.helper.proto.AppInfo;
-
-import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageInfo;
-import android.os.Environment;
 
 import io.virtualapp.abs.ui.VUiKit;
 
@@ -36,6 +37,9 @@ public class AppRepository implements AppDataSource {
 				.add(sdCardPath + File.separator + "tencent" + File.separator + "tassistant" + File.separator + "apk");
 		sdCardScanPaths.add(sdCardPath + File.separator + "BaiduAsa9103056");
 		sdCardScanPaths.add(sdCardPath + File.separator + "360Download");
+		sdCardScanPaths.add(sdCardPath + File.separator + "pp/downloader");
+		sdCardScanPaths.add(sdCardPath + File.separator + "pp/downloader/apk");
+		sdCardScanPaths.add(sdCardPath + File.separator + "pp/downloader/silent/apk");
 	}
 
 	private Context mContext;
@@ -51,10 +55,12 @@ public class AppRepository implements AppDataSource {
 	@Override
 	public Promise<List<AppModel>, Throwable, Void> getVirtualApps() {
 		return VUiKit.defer().when(() -> {
-			List<AppInfo> infos = VirtualCore.getCore().getAllApps();
+			List<AppSetting> infos = VirtualCore.get().getAllApps();
 			List<AppModel> models = new ArrayList<AppModel>();
-			for (AppInfo info : infos) {
-				models.add(new AppModel(mContext, info));
+			for (AppSetting info : infos) {
+				if (VirtualCore.get().getLaunchIntent(info.packageName, VUserHandle.USER_OWNER) != null) {
+					models.add(new AppModel(mContext, info));
+				}
 			}
 			Collections.sort(models, (lhs, rhs) -> COLLATOR.compare(lhs.name, rhs.name));
 			return models;
@@ -92,7 +98,7 @@ public class AppRepository implements AppDataSource {
 					pkgInfo.applicationInfo.sourceDir = f.getAbsolutePath();
 					pkgInfo.applicationInfo.publicSourceDir = f.getAbsolutePath();
 				} catch (Exception e) {
-					e.printStackTrace();
+					// Ignore
 				}
 				if (pkgInfo != null)
 					pkgs.add(pkgInfo);
@@ -103,7 +109,7 @@ public class AppRepository implements AppDataSource {
 
 	private List<AppModel> pkgInfosToAppModels(Context context, List<PackageInfo> pkgList, boolean fastOpen) {
 		List<AppModel> models = new ArrayList<>(pkgList.size());
-		String hostPkg = VirtualCore.getCore().getHostPkg();
+		String hostPkg = VirtualCore.get().getHostPkg();
 		for (PackageInfo pkg : pkgList) {
 			if (hostPkg.equals(pkg.packageName)) {
 				continue;
@@ -111,7 +117,7 @@ public class AppRepository implements AppDataSource {
 			if (isSystemApplication(pkg)) {
 				continue;
 			}
-			if (VirtualCore.getCore().isAppInstalled(pkg.packageName)) {
+			if (VirtualCore.get().isAppInstalled(pkg.packageName)) {
 				continue;
 			}
 			AppModel model = new AppModel(context, pkg);
@@ -128,12 +134,12 @@ public class AppRepository implements AppDataSource {
 		if (app.fastOpen) {
 			flags |= InstallStrategy.DEPEND_SYSTEM_IF_EXIST;
 		}
-		VirtualCore.getCore().installApp(app.path, flags);
+		VirtualCore.get().installApp(app.path, flags);
 	}
 
 	@Override
 	public void removeVirtualApp(AppModel app) throws Throwable {
-		VirtualCore.getCore().uninstallApp(app.packageName);
+		VirtualCore.get().uninstallApp(app.packageName);
 	}
 
 }

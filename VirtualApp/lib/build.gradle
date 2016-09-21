@@ -5,7 +5,7 @@ android {
     buildToolsVersion "23.0.3"
 
     defaultConfig {
-        minSdkVersion 15
+        minSdkVersion 13
         targetSdkVersion 22
         versionCode 1
         versionName "1.0"
@@ -13,7 +13,7 @@ android {
             moduleName "iohook"
             stl "stlport_static"
             ldLibs "log"
-            abiFilters "armeabi"//, "x86"
+            abiFilters "armeabi", "x86"
         }
     }
     buildTypes {

@@ -19,10 +19,15 @@ import io.virtualapp.abs.ui.VUiKit;
 		mView.prepareLoading();
 		mView.startLoading();
 		VUiKit.defer().when(() -> {
-			try {
-				Thread.sleep(500);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
+			long before = System.currentTimeMillis();
+			// Do some thing
+			long delta = System.currentTimeMillis() - before;
+			if (delta < 500) {
+				try {
+					Thread.sleep(500 - delta);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
 			}
 		}).done((res) -> mView.finishLoading());
 	}

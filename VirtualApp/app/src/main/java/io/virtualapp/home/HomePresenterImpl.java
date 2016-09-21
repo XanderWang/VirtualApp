@@ -2,8 +2,6 @@ package io.virtualapp.home;
 
 import android.app.Activity;
 
-import com.lody.virtual.client.local.LocalProcessManager;
-
 import io.virtualapp.VCommends;
 import io.virtualapp.home.models.AppModel;
 import io.virtualapp.home.models.AppRepository;
@@ -35,10 +33,9 @@ public class HomePresenterImpl implements HomeContract.HomePresenter {
 	}
 
 	@Override
-	public void launchApp(AppModel model) {
+	public void launchApp(AppModel model, int userId) {
 		try {
-			LocalProcessManager.killAllApps();
-			LoadingActivity.launch(mActivity, model);
+			LoadingActivity.launch(mActivity, model, userId);
 		} catch (Throwable e) {
 			e.printStackTrace();
 		}

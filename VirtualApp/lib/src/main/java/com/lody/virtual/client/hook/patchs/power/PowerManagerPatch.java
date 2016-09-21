@@ -1,46 +1,42 @@
 package com.lody.virtual.client.hook.patchs.power;
 
+import android.content.Context;
+
+import com.lody.virtual.client.hook.base.PatchDelegate;
+import com.lody.virtual.client.hook.base.ReplaceLastPkgHook;
+import com.lody.virtual.client.hook.base.ReplaceSequencePkgHook;
+import com.lody.virtual.client.hook.base.ResultStaticHook;
+import com.lody.virtual.client.hook.binders.PowerBinderDelegate;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-import com.lody.virtual.client.hook.base.HookBinder;
-import com.lody.virtual.client.hook.base.PatchObject;
-import com.lody.virtual.client.hook.base.ReplaceLastPkgHook;
-import com.lody.virtual.client.hook.base.ReplaceSequencePkgHook;
-import com.lody.virtual.client.hook.binders.HookPowerBinder;
-
-import android.content.Context;
-import android.os.IPowerManager;
-import android.os.ServiceManager;
+import mirror.android.os.ServiceManager;
 
 /**
  * @author Lody
  *
- *
- * @see IPowerManager
  */
-public class PowerManagerPatch extends PatchObject<IPowerManager, HookPowerBinder> {
+public class PowerManagerPatch extends PatchDelegate<PowerBinderDelegate> {
 
 	@Override
-	protected HookPowerBinder initHookObject() {
-		return new HookPowerBinder();
+	protected PowerBinderDelegate createHookDelegate() {
+		return new PowerBinderDelegate();
 	}
 
 	@Override
 	public void inject() throws Throwable {
-		HookBinder<IPowerManager> hookBinder = getHookObject();
-		hookBinder.injectService(Context.POWER_SERVICE);
+		getHookDelegate().replaceService(Context.POWER_SERVICE);
 	}
 
 	@Override
-	protected void applyHooks() {
-		super.applyHooks();
+	protected void onBindHooks() {
+		super.onBindHooks();
 		addHook(new ReplaceSequencePkgHook("acquireWakeLock", 2) {
-
 			@Override
-			public Object onHook(Object who, Method method, Object... args) throws Throwable {
+			public Object call(Object who, Method method, Object... args) throws Throwable {
 				try {
-					return super.onHook(who, method, args);
+					return super.call(who, method, args);
 				} catch (InvocationTargetException e) {
 					return onHandleError(e);
 				}
@@ -49,15 +45,15 @@ public class PowerManagerPatch extends PatchObject<IPowerManager, HookPowerBinde
 		addHook(new ReplaceLastPkgHook("acquireWakeLockWithUid") {
 
 			@Override
-			public Object onHook(Object who, Method method, Object... args) throws Throwable {
+			public Object call(Object who, Method method, Object... args) throws Throwable {
 				try {
-					return super.onHook(who, method, args);
+					return super.call(who, method, args);
 				} catch (InvocationTargetException e) {
 					return onHandleError(e);
 				}
 			}
-
 		});
+		addHook(new ResultStaticHook("updateWakeLockWorkSource", 0));
 	}
 
 	private Object onHandleError(InvocationTargetException e) throws Throwable {
@@ -69,6 +65,6 @@ public class PowerManagerPatch extends PatchObject<IPowerManager, HookPowerBinde
 
 	@Override
 	public boolean isEnvBad() {
-		return ServiceManager.getService(Context.POWER_SERVICE) != getHookObject();
+		return ServiceManager.getService.call(Context.POWER_SERVICE) != getHookDelegate();
 	}
 }

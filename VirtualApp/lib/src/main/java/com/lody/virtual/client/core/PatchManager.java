@@ -1,15 +1,9 @@
 package com.lody.virtual.client.core;
 
-import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
-import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR2;
-import static android.os.Build.VERSION_CODES.KITKAT;
-import static android.os.Build.VERSION_CODES.LOLLIPOP;
-import static android.os.Build.VERSION_CODES.LOLLIPOP_MR1;
+import android.os.Build;
+import android.provider.Settings;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import com.lody.virtual.client.hook.base.PatchObject;
+import com.lody.virtual.client.hook.base.PatchDelegate;
 import com.lody.virtual.client.hook.delegate.AppInstrumentation;
 import com.lody.virtual.client.hook.patchs.account.AccountManagerPatch;
 import com.lody.virtual.client.hook.patchs.alerm.AlarmManagerPatch;
@@ -19,28 +13,29 @@ import com.lody.virtual.client.hook.patchs.appops.AppOpsManagerPatch;
 import com.lody.virtual.client.hook.patchs.appwidget.AppWidgetManagerPatch;
 import com.lody.virtual.client.hook.patchs.audio.AudioManagerPatch;
 import com.lody.virtual.client.hook.patchs.backup.BackupManagerPatch;
-import com.lody.virtual.client.hook.patchs.camera.CameraPatch;
 import com.lody.virtual.client.hook.patchs.clipboard.ClipBoardPatch;
-import com.lody.virtual.client.hook.patchs.display.DisplayManagerPatch;
+import com.lody.virtual.client.hook.patchs.connectivity.ConnectivityPatch;
+import com.lody.virtual.client.hook.patchs.content.ContentServicePatch;
+import com.lody.virtual.client.hook.patchs.display.DisplayPatch;
 import com.lody.virtual.client.hook.patchs.dropbox.DropBoxManagerPatch;
 import com.lody.virtual.client.hook.patchs.graphics.GraphicsStatsPatch;
 import com.lody.virtual.client.hook.patchs.imms.MmsPatch;
 import com.lody.virtual.client.hook.patchs.input.InputMethodManagerPatch;
-import com.lody.virtual.client.hook.patchs.isub.SubPatch;
+import com.lody.virtual.client.hook.patchs.isub.ISubPatch;
 import com.lody.virtual.client.hook.patchs.job.JobPatch;
+import com.lody.virtual.client.hook.patchs.libcore.LibCorePatch;
 import com.lody.virtual.client.hook.patchs.location.LocationManagerPatch;
 import com.lody.virtual.client.hook.patchs.media.router.MediaRouterServicePatch;
 import com.lody.virtual.client.hook.patchs.media.session.SessionManagerPatch;
-import com.lody.virtual.client.hook.patchs.miui.security.MIUISecurityManagerPatch;
 import com.lody.virtual.client.hook.patchs.mount.MountServicePatch;
 import com.lody.virtual.client.hook.patchs.notification.NotificationManagerPatch;
+import com.lody.virtual.client.hook.patchs.persistent_data_block.PersistentDataBlockServicePatch;
 import com.lody.virtual.client.hook.patchs.phonesubinfo.PhoneSubInfoPatch;
 import com.lody.virtual.client.hook.patchs.pm.PackageManagerPatch;
 import com.lody.virtual.client.hook.patchs.power.PowerManagerPatch;
 import com.lody.virtual.client.hook.patchs.restriction.RestrictionPatch;
 import com.lody.virtual.client.hook.patchs.search.SearchManagerPatch;
 import com.lody.virtual.client.hook.patchs.telephony.TelephonyPatch;
-import com.lody.virtual.client.hook.patchs.telephony_registry.TelephonyRegistryPatch;
 import com.lody.virtual.client.hook.patchs.user.UserManagerPatch;
 import com.lody.virtual.client.hook.patchs.vibrator.VibratorPatch;
 import com.lody.virtual.client.hook.patchs.wifi.WifiManagerPatch;
@@ -49,19 +44,23 @@ import com.lody.virtual.client.interfaces.IHookObject;
 import com.lody.virtual.client.interfaces.Injectable;
 import com.lody.virtual.helper.utils.Reflect;
 
-import android.os.Build;
-import android.provider.Settings;
+import java.util.HashMap;
+import java.util.Map;
+
+import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
+import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR2;
+import static android.os.Build.VERSION_CODES.KITKAT;
+import static android.os.Build.VERSION_CODES.LOLLIPOP;
+import static android.os.Build.VERSION_CODES.LOLLIPOP_MR1;
 
 /**
  * @author Lody
  *
- *         <p/>
- *         注入管理器,维护全部的注入对象.
  */
 public final class PatchManager {
 
 	private static final String TAG = PatchManager.class.getSimpleName();
-	private Map<Class<?>, Injectable> injectableMap = new HashMap<Class<?>, Injectable>(12);
+	private Map<Class<?>, Injectable> injectableMap = new HashMap<>(12);
 
 	private PatchManager() {
 	}
@@ -87,11 +86,9 @@ public final class PatchManager {
 		}
 	}
 
-	public void checkEnv() throws Throwable {
+	void injectAll() throws Throwable {
 		for (Injectable injectable : injectableMap.values()) {
-			if (injectable.isEnvBad()) {
-				injectable.inject();
-			}
+			injectable.inject();
 		}
 	}
 
@@ -102,32 +99,35 @@ public final class PatchManager {
 		return PatchManagerHolder.sInit;
 	}
 
-	/**
-	 * 初始化PatchManager
-	 * <h1>必须确保只调用一次.</h1>
-	 */
-	public void injectAll() throws Throwable {
+
+	public void init() throws Throwable {
 		if (PatchManagerHolder.sInit) {
 			throw new IllegalStateException("PatchManager Has been initialized.");
 		}
 		injectInternal();
+		fixAllSettings();
 		PatchManagerHolder.sInit = true;
 
 	}
 
 	private void injectInternal() throws Throwable {
-		addPatch(new ActivityManagerPatch());
-		addPatch(new PackageManagerPatch());
-
-		if (VirtualCore.getCore().isVAppProcess()) {
-			// ## Fuck the MIUI Security
-			if (MIUISecurityManagerPatch.needInject()) {
-				addPatch(new MIUISecurityManagerPatch());
-			}
+		if (VirtualCore.get().isMainProcess()) {
+			return;
+		}
+		if (VirtualCore.get().isServiceProcess()) {
+			addPatch(new ActivityManagerPatch());
+			addPatch(new PackageManagerPatch());
+			return;
+		}
+		if (VirtualCore.get().isVAppProcess()) {
+			addPatch(new LibCorePatch());
+			addPatch(new ActivityManagerPatch());
+			addPatch(new PackageManagerPatch());
 			// ## End
 			addPatch(HCallbackHook.getDefault());
 			addPatch(AppInstrumentation.getDefault());
 
+			addPatch(new ISubPatch());
 			addPatch(new DropBoxManagerPatch());
 			addPatch(new NotificationManagerPatch());
 			addPatch(new LocationManagerPatch());
@@ -138,12 +138,11 @@ public final class PatchManager {
 			addPatch(new TelephonyPatch());
 			addPatch(new PhoneSubInfoPatch());
 			addPatch(new PowerManagerPatch());
-			addPatch(new TelephonyRegistryPatch());
 			addPatch(new AppWidgetManagerPatch());
 			addPatch(new AccountManagerPatch());
 			addPatch(new AudioManagerPatch());
 			addPatch(new SearchManagerPatch());
-			addPatch(new AlarmManagerPatch());
+			addPatch(new ContentServicePatch());
 
 			if (Build.VERSION.SDK_INT >= JELLY_BEAN_MR2) {
 				addPatch(new VibratorPatch());
@@ -154,25 +153,25 @@ public final class PatchManager {
 			}
 
 			if (Build.VERSION.SDK_INT >= JELLY_BEAN_MR1) {
-				addPatch(new DisplayManagerPatch());
+				addPatch(new DisplayPatch());
 			}
 			if (Build.VERSION.SDK_INT >= LOLLIPOP) {
+				addPatch(new PersistentDataBlockServicePatch());
 				addPatch(new InputMethodManagerPatch());
 				addPatch(new MmsPatch());
 				addPatch(new SessionManagerPatch());
 				addPatch(new JobPatch());
 				addPatch(new RestrictionPatch());
-				addPatch(new CameraPatch());
 			}
 			if (Build.VERSION.SDK_INT >= KITKAT) {
+				addPatch(new AlarmManagerPatch());
 				addPatch(new AppOpsManagerPatch());
 				addPatch(new MediaRouterServicePatch());
 			}
 			if (Build.VERSION.SDK_INT >= LOLLIPOP_MR1) {
 				addPatch(new GraphicsStatsPatch());
-				addPatch(new SubPatch());
 			}
-
+            addPatch(new ConnectivityPatch());
 		}
 	}
 
@@ -198,9 +197,9 @@ public final class PatchManager {
 
 	public <T extends Injectable, H extends IHookObject> H getHookObject(Class<T> patchClass) {
 		T patch = findPatch(patchClass);
-		if (patch != null && patch instanceof PatchObject) {
+		if (patch != null && patch instanceof PatchDelegate) {
 			// noinspection unchecked
-			return (H) ((PatchObject) patch).getHookObject();
+			return (H) ((PatchDelegate) patch).getHookDelegate();
 		}
 		return null;
 	}

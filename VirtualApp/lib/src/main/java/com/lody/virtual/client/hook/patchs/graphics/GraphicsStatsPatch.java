@@ -1,34 +1,35 @@
 package com.lody.virtual.client.hook.patchs.graphics;
 
-import com.lody.virtual.client.hook.base.Patch;
-import com.lody.virtual.client.hook.base.PatchObject;
-import com.lody.virtual.client.hook.binders.HookGraphicsStatsBinder;
+import com.lody.virtual.client.hook.base.PatchDelegate;
+import com.lody.virtual.client.hook.base.ReplaceCallingPkgHook;
+import com.lody.virtual.client.hook.binders.GraphicsStatsBinderDelegate;
 
-import android.os.ServiceManager;
-import android.view.IGraphicsStats;
+import mirror.android.os.ServiceManager;
+
 
 /**
  * @author Lody
- *
- *
- *
- * @see IGraphicsStats
  */
-@Patch({Hook_RequestBufferForProcess.class})
-public class GraphicsStatsPatch extends PatchObject<IGraphicsStats, HookGraphicsStatsBinder> {
+public class GraphicsStatsPatch extends PatchDelegate<GraphicsStatsBinderDelegate> {
 
 	@Override
-	protected HookGraphicsStatsBinder initHookObject() {
-		return new HookGraphicsStatsBinder();
+	protected GraphicsStatsBinderDelegate createHookDelegate() {
+		return new GraphicsStatsBinderDelegate();
+	}
+
+	@Override
+	protected void onBindHooks() {
+		super.onBindHooks();
+		addHook(new ReplaceCallingPkgHook("requestBufferForProcess"));
 	}
 
 	@Override
 	public void inject() throws Throwable {
-		getHookObject().injectService(HookGraphicsStatsBinder.SERVICE_NAME);
+		getHookDelegate().replaceService("graphicsstats");
 	}
 
 	@Override
 	public boolean isEnvBad() {
-		return ServiceManager.getService(HookGraphicsStatsBinder.SERVICE_NAME) != getHookObject();
+		return ServiceManager.getService.call("graphicsstats") != getHookDelegate();
 	}
 }

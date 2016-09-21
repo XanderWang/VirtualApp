@@ -1,34 +1,56 @@
 package com.lody.virtual.client.hook.patchs.wifi;
 
-import com.lody.virtual.client.hook.base.Patch;
-import com.lody.virtual.client.hook.base.PatchObject;
-import com.lody.virtual.client.hook.binders.HookWifiBinder;
-
 import android.content.Context;
-import android.net.wifi.IWifiManager;
-import android.os.ServiceManager;
+import android.net.wifi.WifiInfo;
+
+import com.lody.virtual.client.hook.base.Patch;
+import com.lody.virtual.client.hook.base.PatchDelegate;
+import com.lody.virtual.client.hook.base.StaticHook;
+import com.lody.virtual.client.hook.binders.WifiBinderDelegate;
+import com.lody.virtual.helper.utils.Reflect;
+
+import java.lang.reflect.Method;
+
+import mirror.android.os.ServiceManager;
 
 /**
  * @author Lody
  *
  *
- * @see IWifiManager
  * @see android.net.wifi.WifiManager
  */
-@Patch({Hook_GetBatchedScanResults.class, Hook_GetScanResults.class, Hook_SetWifiEnabled.class})
-public class WifiManagerPatch extends PatchObject<IWifiManager, HookWifiBinder> {
+@Patch({GetBatchedScanResults.class, GetScanResults.class, SetWifiEnabled.class})
+public class WifiManagerPatch extends PatchDelegate<WifiBinderDelegate> {
 	@Override
-	protected HookWifiBinder initHookObject() {
-		return new HookWifiBinder();
+	protected WifiBinderDelegate createHookDelegate() {
+		return new WifiBinderDelegate();
 	}
 
 	@Override
 	public void inject() throws Throwable {
-		getHookObject().injectService(Context.WIFI_SERVICE);
+		getHookDelegate().replaceService(Context.WIFI_SERVICE);
+	}
+
+	@Override
+	protected void onBindHooks() {
+		super.onBindHooks();
+		addHook(new StaticHook("getConnectionInfo") {
+			@Override
+			public Object call(Object who, Method method, Object... args) throws Throwable {
+				WifiInfo info = (WifiInfo) super.call(who, method, args);
+				if (info != null) {
+					if (info.getMacAddress().startsWith("00-00-00-00-00-00")) {
+						Reflect.on(info).set("mMacAddress", "00:00:08:76:54:32");
+					}
+
+				}
+				return info;
+			}
+		});
 	}
 
 	@Override
 	public boolean isEnvBad() {
-		return ServiceManager.getService(Context.WIFI_SERVICE) != getHookObject();
+		return ServiceManager.getService.call(Context.WIFI_SERVICE) != getHookDelegate();
 	}
 }

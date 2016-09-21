@@ -1,11 +1,10 @@
 package com.lody.virtual.client.hook.delegate;
 
-import com.android.internal.content.ReferrerIntent;
 
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.Application;
-import android.app.IAppTask;
+import android.app.Fragment;
 import android.app.Instrumentation;
 import android.app.UiAutomation;
 import android.content.ComponentName;
@@ -21,15 +20,11 @@ import android.os.UserHandle;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 
+import com.lody.virtual.helper.utils.Mark;
+import com.lody.virtual.helper.utils.Reflect;
+
 /**
  * @author Lody
- *
- *
- *         Note:
- *         <p>
- *         本类在不同API版本中,方法有删有增, 所以要使用最新的API版本.
- *         </p>
- *
  */
 public class InstrumentationDelegate extends Instrumentation {
 
@@ -42,10 +37,6 @@ public class InstrumentationDelegate extends Instrumentation {
 	public static Application newApplication(Class<?> clazz, Context context)
 			throws InstantiationException, IllegalAccessException, ClassNotFoundException {
 		return Instrumentation.newApplication(clazz, context);
-	}
-
-	public static void checkStartActivityResult(int res, Object intent) {
-		Instrumentation.checkStartActivityResult(res, intent);
 	}
 
 	@Override
@@ -297,10 +288,6 @@ public class InstrumentationDelegate extends Instrumentation {
 		base.callActivityOnNewIntent(activity, intent);
 	}
 
-	@Override
-	public void callActivityOnNewIntent(Activity activity, ReferrerIntent intent) {
-		base.callActivityOnNewIntent(activity, intent);
-	}
 
 	@Override
 	public void callActivityOnStart(Activity activity) {
@@ -345,18 +332,6 @@ public class InstrumentationDelegate extends Instrumentation {
 	}
 
 	@Override
-	@Deprecated
-	public void startAllocCounting() {
-		base.startAllocCounting();
-	}
-
-	@Override
-	@Deprecated
-	public void stopAllocCounting() {
-		base.stopAllocCounting();
-	}
-
-	@Override
 	public Bundle getAllocCounts() {
 		return base.getAllocCounts();
 	}
@@ -366,52 +341,56 @@ public class InstrumentationDelegate extends Instrumentation {
 		return base.getBinderCounts();
 	}
 
-	@Override
-	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Activity target,
-			Intent intent, int requestCode, Bundle options) {
-		return base.execStartActivity(who, contextThread, token, target, intent, requestCode, options);
-	}
-
-	@Override
-	public void execStartActivities(Context who, IBinder contextThread, IBinder token, Activity target,
-			Intent[] intents, Bundle options) {
-		base.execStartActivities(who, contextThread, token, target, intents, options);
-	}
-
-	@Override
-	public void execStartActivitiesAsUser(Context who, IBinder contextThread, IBinder token, Activity target,
-			Intent[] intents, Bundle options, int userId) {
-		base.execStartActivitiesAsUser(who, contextThread, token, target, intents, options, userId);
-	}
-
-	@Override
-	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, String target,
-			Intent intent, int requestCode, Bundle options) {
-		return base.execStartActivity(who, contextThread, token, target, intent, requestCode, options);
-	}
-
-	@Override
-	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Activity target,
-			Intent intent, int requestCode, Bundle options, UserHandle user) {
-		return base.execStartActivity(who, contextThread, token, target, intent, requestCode, options, user);
-	}
-
-	@Override
-	public ActivityResult execStartActivityAsCaller(Context who, IBinder contextThread, IBinder token, Activity target,
-			Intent intent, int requestCode, Bundle options, boolean ignoreTargetSecurity, int userId) {
-		return base.execStartActivityAsCaller(who, contextThread, token, target, intent, requestCode, options,
-				ignoreTargetSecurity, userId);
-	}
-
-	@Override
-	public void execStartActivityFromAppTask(Context who, IBinder contextThread, IAppTask appTask, Intent intent,
-			Bundle options) {
-		base.execStartActivityFromAppTask(who, contextThread, appTask, intent, options);
-	}
 
 	@TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR2)
 	@Override
 	public UiAutomation getUiAutomation() {
 		return base.getUiAutomation();
 	}
+
+
+	@Mark
+	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Activity target,
+											Intent intent, int requestCode) {
+
+		return Reflect.on(base).call("execStartActivity", who, contextThread, token, target, intent, requestCode).get();
+	}
+
+
+	@Mark
+	public ActivityResult execStartActivity(Context context, IBinder contextThread, IBinder token, Activity target,
+											Intent intent, int requestCode, Bundle options, UserHandle userHandle) {
+
+		return Reflect.on(base).call("execStartActivity", context, contextThread, token, target, intent, requestCode, options, userHandle).get();
+	}
+
+
+
+	@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+	@Mark
+	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Activity target,
+											Intent intent, int requestCode, Bundle options) {
+		return Reflect.on(base).call("execStartActivity", who, contextThread, token, target, intent, requestCode, options).get();
+	}
+
+
+	@TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
+	@Mark
+	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Fragment fragment,
+											Intent intent, int requestCode) {
+		return Reflect.on(base).call("execStartActivity", who, contextThread, token, fragment, intent, requestCode).get();
+	}
+
+
+	@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+	@Mark
+	public ActivityResult execStartActivity(Context who, IBinder contextThread, IBinder token, Fragment fragment,
+											Intent intent, int requestCode, Bundle options) {
+		return Reflect.on(base).call("execStartActivity", who, contextThread, token, fragment, intent,requestCode, options).get();
+	}
+
+
+
+
+
 }

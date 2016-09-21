@@ -1,33 +1,30 @@
 package com.lody.virtual.client.service;
 
-import com.lody.virtual.client.core.VirtualCore;
-import com.lody.virtual.client.env.VirtualRuntime;
-import com.lody.virtual.helper.ExtraConstants;
-import com.lody.virtual.helper.MethodConstants;
-import com.lody.virtual.helper.compat.BundleCompat;
-import com.lody.virtual.helper.utils.VLog;
-import com.lody.virtual.service.ServiceCache;
-import com.lody.virtual.service.interfaces.IServiceFetcher;
-
 import android.content.Context;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+
+import com.lody.virtual.client.core.VirtualCore;
+import com.lody.virtual.client.env.VirtualRuntime;
+import com.lody.virtual.helper.compat.BundleCompat;
+import com.lody.virtual.helper.utils.VLog;
+import com.lody.virtual.server.ServiceCache;
+import com.lody.virtual.service.interfaces.IServiceFetcher;
 
 /**
  * @author Lody
  */
 public class ServiceManagerNative {
 
-	public static final String PACKAGE_MANAGER = "package";
-	public static final String ACTIVITY_MANAGER = "activity";
-	public static final String APP_MANAGER = "app";
-	public static final String PROCESS_MANAGER = "process";
-	public static final String SERVICE_MANAGER = "service";
-	public static final String CONTENT_MANAGER = "content";
-	public static final String ACCOUNT_MANAGER = "account";
-	public static final String RECEIVER_MANAGER = "receiver";
-	public static final String INTENT_FILTER_MANAGER = "intent_filter";
+	public static final String PACKAGE = "package";
+	public static final String ACTIVITY = "activity";
+	public static final String USER = "user";
+	public static final String APP = "app";
+	public static final String ACCOUNT = "account";
+	public static final String JOB = "job";
+	public static final String INTENT_FILTER = "intent_filter";
+    public static final String INTERCEPTOR_SERVICE = "interceptor_service";
 	private static final String TAG = ServiceManagerNative.class.getSimpleName();
 	private static final String SERVICE_CP_AUTH = "virtual.service.BinderProvider";
 
@@ -35,10 +32,10 @@ public class ServiceManagerNative {
 
 	public synchronized static IServiceFetcher getServiceFetcher() {
 		if (sFetcher == null) {
-			Context context = VirtualCore.getCore().getContext();
-			Bundle response = new ProviderCaller.Builder(context, SERVICE_CP_AUTH).methodName("@").call();
+			Context context = VirtualCore.get().getContext();
+			Bundle response = new ProviderCall.Builder(context, SERVICE_CP_AUTH).methodName("@").call();
 			if (response != null) {
-				IBinder binder = BundleCompat.getBinder(response, ExtraConstants.EXTRA_BINDER);
+				IBinder binder = BundleCompat.getBinder(response, "_VA_|_binder_");
 				linkBinderDied(binder);
 				sFetcher = IServiceFetcher.Stub.asInterface(binder);
 			}
@@ -63,7 +60,7 @@ public class ServiceManagerNative {
 	}
 
 	public static IBinder getService(String name) {
-		if (VirtualCore.getCore().isServiceProcess()) {
+		if (VirtualCore.get().isServiceProcess()) {
 			return ServiceCache.getService(name);
 		}
 		IServiceFetcher fetcher = getServiceFetcher();
@@ -99,10 +96,6 @@ public class ServiceManagerNative {
 				e.printStackTrace();
 			}
 		}
-	}
-
-	public static void startup(Context context) {
-		new ProviderCaller.Builder(context, SERVICE_CP_AUTH).methodName(MethodConstants.INIT_SERVICE).call();
 	}
 
 }
