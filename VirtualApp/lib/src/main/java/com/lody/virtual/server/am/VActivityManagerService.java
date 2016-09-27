@@ -15,7 +15,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.UserInfo;
+import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -45,6 +45,7 @@ import com.lody.virtual.helper.utils.collection.ArrayMap;
 import com.lody.virtual.helper.utils.collection.SparseArray;
 import com.lody.virtual.os.VBinder;
 import com.lody.virtual.os.VUserHandle;
+import com.lody.virtual.os.VUserInfo;
 import com.lody.virtual.os.VUserManager;
 import com.lody.virtual.server.pm.VAppManagerService;
 import com.lody.virtual.server.pm.VPackageManagerService;
@@ -226,6 +227,11 @@ public class VActivityManagerService extends IActivityManager.Stub {
 		return mMainStack.getCallingActivity(userId, token);
 	}
 
+	@Override
+	public String getCallingPackage(int userId, IBinder token) {
+		return mMainStack.getCallingPackage(userId, token);
+	}
+
 
 	@Override
 	public boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
@@ -265,17 +271,62 @@ public class VActivityManagerService extends IActivityManager.Stub {
 
 	@Override
 	public ComponentName startService(IBinder caller, Intent service, String resolvedType, int userId) {
-		synchronized (this) {
-			return startServiceCommon(service, true, userId);
+		ServiceInfo info = resolveServiceInfo(service, userId);
+		if (info != null) {
+			synchronized (this) {
+				StartServiceArgs args = new StartServiceArgs(service, info, true, userId);
+				startServiceAsync(args, null);
+				return ComponentUtils.toComponentName(info);
+			}
+		}
+		return null;
+	}
+
+
+	private static final class StartServiceArgs {
+		Intent service;
+		ServiceInfo serviceInfo;
+		boolean scheduleServiceArgs;
+		int userId;
+
+		StartServiceArgs(Intent service, ServiceInfo serviceInfo, boolean scheduleServiceArgs, int userId) {
+			this.service = service;
+			this.serviceInfo = serviceInfo;
+			this.scheduleServiceArgs = scheduleServiceArgs;
+			this.userId = userId;
 		}
 	}
 
-	private ComponentName startServiceCommon(Intent service,
-											 boolean scheduleServiceArgs, int userId) {
-		ServiceInfo serviceInfo = resolveServiceInfo(service, userId);
-		if (serviceInfo == null) {
-			return null;
-		}
+	private interface OnServiceStartedListener {
+		void OnServiceStarted(StartServiceArgs args, ServiceRecord record);
+	}
+
+
+
+	private void startServiceAsync(final StartServiceArgs args, final OnServiceStartedListener listener) {
+
+		new AsyncTask<Void, Void, ServiceRecord>() {
+
+			@Override
+			protected ServiceRecord doInBackground(Void... params) {
+				return performStartServiceLocked(args.service, args.serviceInfo, args.scheduleServiceArgs, args.userId);
+			}
+
+			@Override
+			protected void onPostExecute(ServiceRecord record) {
+				if (listener != null) {
+					listener.OnServiceStarted(args, record);
+				}
+			}
+
+		}.execute();
+
+	}
+
+
+	private ServiceRecord performStartServiceLocked(Intent service, ServiceInfo serviceInfo,
+													boolean scheduleServiceArgs, int userId) {
+
 		ProcessRecord targetApp = startProcessIfNeedLocked(ComponentUtils.getProcessName(serviceInfo),
 				userId,
 				serviceInfo.packageName);
@@ -310,7 +361,7 @@ public class VActivityManagerService extends IActivityManager.Stub {
 				e.printStackTrace();
 			}
 		}
-		return ComponentUtils.toComponentName(serviceInfo);
+		return r;
 	}
 
 	@Override
@@ -364,47 +415,55 @@ public class VActivityManagerService extends IActivityManager.Stub {
 	}
 
 	@Override
-	public int bindService(IBinder caller, IBinder token, Intent service, String resolvedType,
-			IServiceConnection connection, int flags, int userId) {
+	public int bindService(IBinder caller, IBinder token, final Intent service, String resolvedType,
+						   final IServiceConnection connection, int flags, int userId) {
+		ServiceInfo serviceInfo = resolveServiceInfo(service, userId);
+		if (serviceInfo == null) {
+			return 0;
+		}
 		synchronized (this) {
-			ServiceInfo serviceInfo = resolveServiceInfo(service, userId);
-			if (serviceInfo == null) {
-				return 0;
-			}
-			ServiceRecord r = findRecordLocked(userId, serviceInfo);
-			boolean firstLaunch = r == null;
-			if (firstLaunch) {
-				if ((flags & Context.BIND_AUTO_CREATE) != 0) {
-					startServiceCommon(service, false, userId);
-					r = findRecordLocked(userId, serviceInfo);
-				}
-			}
+			final ServiceRecord r = findRecordLocked(userId, serviceInfo);
 			if (r == null) {
-				return 0;
-			}
-			ServiceRecord.IntentBindRecord boundRecord = r.peekBinding(service);
-
-			if (boundRecord != null && boundRecord.binder != null && boundRecord.binder.isBinderAlive()) {
-				if (boundRecord.doRebind) {
-					try {
-						IApplicationThreadCompat.scheduleBindService(r.process.appThread, r, service, true, 0);
-					} catch (RemoteException e) {
-						e.printStackTrace();
-					}
+				if ((flags & Context.BIND_AUTO_CREATE) != 0) {
+					StartServiceArgs args = new StartServiceArgs(service, serviceInfo, false, userId);
+					startServiceAsync(args, new OnServiceStartedListener() {
+						@Override
+						public void OnServiceStarted(StartServiceArgs args, ServiceRecord record) {
+							performBindService(service, record, connection);
+						}
+					});
 				}
-				ComponentName componentName = new ComponentName(r.serviceInfo.packageName, r.serviceInfo.name);
-				connectService(connection, componentName, boundRecord);
 			} else {
+				performBindService(service, r, connection);
+			}
+
+			return 1;
+		}
+	}
+
+	private void performBindService(Intent service, ServiceRecord r, IServiceConnection connection) {
+
+		ServiceRecord.IntentBindRecord boundRecord = r.peekBinding(service);
+
+		if (boundRecord != null && boundRecord.binder != null && boundRecord.binder.isBinderAlive()) {
+			if (boundRecord.doRebind) {
 				try {
-					IApplicationThreadCompat.scheduleBindService(r.process.appThread, r, service, false, 0);
+					IApplicationThreadCompat.scheduleBindService(r.process.appThread, r, service, true, 0);
 				} catch (RemoteException e) {
 					e.printStackTrace();
 				}
 			}
-			r.lastActivityTime = SystemClock.uptimeMillis();
-			r.addToBoundIntent(service, connection);
-			return 1;
+			ComponentName componentName = new ComponentName(r.serviceInfo.packageName, r.serviceInfo.name);
+			connectService(connection, componentName, boundRecord);
+		} else {
+			try {
+				IApplicationThreadCompat.scheduleBindService(r.process.appThread, r, service, false, 0);
+			} catch (RemoteException e) {
+				e.printStackTrace();
+			}
 		}
+		r.lastActivityTime = SystemClock.uptimeMillis();
+		r.addToBoundIntent(service, connection);
 	}
 
 
@@ -949,8 +1008,8 @@ public class VActivityManagerService extends IActivityManager.Stub {
 			int uid = VUserHandle.getUid(userId, appId);
 			handleStaticBroadcastAsUser(uid, info, realIntent, receiver, result);
 		} else if (userId == VUserHandle.USER_ALL) {
-			List<UserInfo> userList = VUserManager.get().getUsers(false);
-			for (UserInfo userInfo : userList) {
+			List<VUserInfo> userList = VUserManager.get().getUsers(false);
+			for (VUserInfo userInfo : userList) {
 				int uid = VUserHandle.getUid(userInfo.id, appId);
 				handleStaticBroadcastAsUser(uid, info, realIntent, receiver, result);
 			}

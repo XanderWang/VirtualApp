@@ -125,7 +125,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 	private boolean markTaskByClearTarget(TaskRecord task, ClearTarget clearTarget, ComponentName component) {
 		boolean marked = false;
 		switch (clearTarget) {
-			case FULL_TASK : {
+			case TASK: {
 				synchronized (task.activities) {
 					for (ActivityRecord r : task.activities) {
 						r.marked = true;
@@ -143,7 +143,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 					}
 				}
 			} break;
-			case AFTER_TOP : {
+			case TOP: {
 				synchronized (task.activities) {
 					int N = task.activities.size();
 					while (N-- > 0) {
@@ -216,11 +216,11 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		}
 		if (clearTop) {
 			removeFlags(intent, Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-			clearTarget = ClearTarget.AFTER_TOP;
+			clearTarget = ClearTarget.TOP;
 		}
 		if (containFlags(intent, Intent.FLAG_ACTIVITY_CLEAR_TASK)) {
 			if (containFlags(intent, Intent.FLAG_ACTIVITY_NEW_TASK)) {
-				clearTarget = ClearTarget.FULL_TASK;
+				clearTarget = ClearTarget.TASK;
 			} else {
 				removeFlags(intent, Intent.FLAG_ACTIVITY_CLEAR_TASK);
 			}
@@ -228,7 +228,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
 			switch (info.documentLaunchMode) {
 				case ActivityInfo.DOCUMENT_LAUNCH_INTO_EXISTING :
-					clearTarget = ClearTarget.FULL_TASK;
+					clearTarget = ClearTarget.TASK;
 					reuseTarget = ReuseTarget.DOCUMENT;
 					break;
 				case ActivityInfo.DOCUMENT_LAUNCH_ALWAYS :
@@ -236,10 +236,13 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 					break;
 			}
 		}
+		boolean singleTop = false;
 
 		switch (info.launchMode) {
 			case LAUNCH_SINGLE_TOP : {
-				clearTarget = ClearTarget.AFTER_TOP;
+				if (!clearTop) {
+					singleTop = true;
+				}
 				if (containFlags(intent, Intent.FLAG_ACTIVITY_NEW_TASK)) {
 					reuseTarget = containFlags(intent, Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
 							? ReuseTarget.MULTIPLE
@@ -248,20 +251,22 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 			}
 				break;
 			case LAUNCH_SINGLE_TASK : {
-				clearTarget = ClearTarget.AFTER_TOP;
+				clearTop = false;
+				clearTarget = ClearTarget.TOP;
 				reuseTarget = containFlags(intent, Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
 						? ReuseTarget.MULTIPLE
 						: ReuseTarget.AFFINITY;
 			}
 				break;
 			case LAUNCH_SINGLE_INSTANCE : {
-				clearTarget = ClearTarget.AFTER_TOP;
+				clearTop = false;
+				clearTarget = ClearTarget.TOP;
 				reuseTarget = ReuseTarget.AFFINITY;
 			}
 				break;
 			default : {
 				if (containFlags(intent, Intent.FLAG_ACTIVITY_SINGLE_TOP)) {
-					clearTarget = ClearTarget.AFTER_TOP;
+					singleTop = true;
 				}
 			}
 				break;
@@ -299,10 +304,10 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 			mAM.moveTaskToFront(reuseTask.taskId, 0);
 			boolean startTaskToFront = ComponentUtils.isSameIntent(intent, reuseTask.taskRoot);
 
-			if (clearTarget.deliverIntent) {
+			if (clearTarget.deliverIntent || singleTop) {
 				taskMarked = markTaskByClearTarget(reuseTask, clearTarget, intent.getComponent());
 				ActivityRecord topRecord = topActivityInTask(reuseTask);
-				if (clearTop && topRecord != null && taskMarked && info.launchMode != ActivityInfo.LAUNCH_SINGLE_TOP) {
+				if (clearTop && topRecord != null && taskMarked) {
 					topRecord.marked = true;
 				}
 				// Target activity is on top
@@ -316,10 +321,12 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 					scheduleFinishMarkedActivity();
 				}
 			}
+			if (reuseTask.isFinishing()) {
+				startActivityInNewTaskLocked(userId, intent, info, options);
+				delivered = true;
+			}
 			if (!startTaskToFront) {
-				if (reuseTask.isFinishing()) {
-					startActivityInNewTaskLocked(userId, intent, info, options);
-				} else if (!delivered) {
+				 if (!delivered) {
 					destIntent = startActivityProcess(userId, sourceRecord, intent, info);
 					if (destIntent != null) {
 						startActivityFromSourceTask(reuseTask, destIntent, info, resultWho, requestCode, options);
@@ -396,6 +403,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		int intentIndex = ArrayUtils.protoIndexOf(types, Intent.class);
 		int resultToIndex = ArrayUtils.protoIndexOf(types, IBinder.class, 2);
 		int optionsIndex = ArrayUtils.protoIndexOf(types, Bundle.class);
+		int resolvedTypeIndex = intentIndex + 1;
 		int resultWhoIndex = resultToIndex + 1;
 		int requestCodeIndex = resultToIndex + 2;
 
@@ -406,6 +414,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		if (optionsIndex != -1) {
 			args[optionsIndex] = options;
 		}
+		args[resolvedTypeIndex] = intent.getType();
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
 			args[intentIndex - 1] = VirtualCore.get().getHostPkg();
 		}
@@ -501,10 +510,8 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 			if (r != null) {
 				synchronized (r.task.activities) {
 					r.task.activities.remove(r);
-					if (r.task.activities.isEmpty()) {
-						mHistory.remove(r.task.taskId);
-						return true;
-					}
+					// We shouldn't remove task at this point,
+					// it will removed by optimizeTasksLocked().
 				}
 			}
 			return false;
@@ -548,7 +555,17 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		synchronized (mHistory) {
 			ActivityRecord r = findActivityByToken(userId, token);
 			if (r != null) {
-				return r.component;
+				return r.caller;
+			}
+			return null;
+		}
+	}
+
+	public String getCallingPackage(int userId, IBinder token) {
+		synchronized (mHistory) {
+			ActivityRecord r = findActivityByToken(userId, token);
+			if (r != null) {
+				return r.caller != null ? r.caller.getPackageName() : null;
 			}
 			return null;
 		}
@@ -564,7 +581,7 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		}
 	}
 
-	public ComponentName getActivityClassForToken(int userId, IBinder token) {
+	ComponentName getActivityClassForToken(int userId, IBinder token) {
 		synchronized (mHistory) {
 			ActivityRecord r = findActivityByToken(userId, token);
 			if (r != null) {
@@ -574,11 +591,13 @@ import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
 		}
 	}
 
+
 	private enum ClearTarget {
 		NOTHING,
 		SPEC_ACTIVITY,
-		FULL_TASK(true),
-		AFTER_TOP(true);
+		TASK(true),
+		TOP(true);
+
 		boolean deliverIntent;
 
 		ClearTarget() {
